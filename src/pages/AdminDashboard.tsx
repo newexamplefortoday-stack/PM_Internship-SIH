@@ -101,8 +101,9 @@ const AdminDashboard = () => {
         },
         body: JSON.stringify({
           student_id: application.id,
-          student_name: userProfile.name,
-          email: userProfile.email,
+          // ✅ FIX: Use application.profile instead of the undefined userProfile
+          student_name: application.profile.name,
+          email: application.profile.email,
           internship: application.internship?.title,
           company: adminData?.company_name,
           status: newStatus
