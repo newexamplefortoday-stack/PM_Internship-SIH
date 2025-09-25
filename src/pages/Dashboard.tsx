@@ -28,6 +28,7 @@ interface Internship {
 interface UserProfile {
   location: string;
   skills: string[];
+  full_name?: string;
 }
 
 const Dashboard = () => {
@@ -36,6 +37,7 @@ const Dashboard = () => {
   const [internships, setInternships] = useState<Internship[]>([]);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
+  const [isApplying, setIsApplying] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [locationFilter, setLocationFilter] = useState('all');
   const [stipendFilter, setStipendFilter] = useState('all');
@@ -51,7 +53,7 @@ const Dashboard = () => {
       // Fetch user profile
       const { data: profile } = await supabase
         .from('profiles')
-        .select('location, skills')
+        .select('location, skills, full_name')
         .eq('user_id', user.id)
         .single();
 
@@ -128,62 +130,115 @@ const Dashboard = () => {
   };
 
   const handleApply = async (internshipId: string) => {
-    if (!user) return;
+    if (!user) {
+      toast({
+        title: 'Authentication Required',
+        description: 'Please log in to apply for internships.',
+        variant: 'destructive'
+      });
+      return;
+    }
+
+    setIsApplying(internshipId);
 
     try {
-      // Insert into Supabase
-      const { error } = await supabase
-        .from('applications')
-        .insert({
-          user_id: user.id,
-          internship_id: internshipId
-        });
+      // Get the internship details
+      const internship = internships.find(i => i.id === internshipId);
+      if (!internship) {
+        throw new Error('Internship not found');
+      }
 
-      if (error) {
-        if (error.code === '23505') { // Unique constraint violation
+      // Check if already applied
+      const { data: existingApplication } = await supabase
+        .from('applications')
+        .select('id')
+        .eq('user_id', user.id)
+        .eq('internship_id', internshipId)
+        .single();
+
+      if (existingApplication) {
+        toast({
+          title: 'Already Applied',
+          description: 'You have already applied for this internship.',
+          variant: 'destructive'
+        });
+        return;
+      }
+
+      // N8N Webhook URL - Replace with your actual URL
+      const webhookUrl = "https://rudrapatel123.app.n8n.cloud/webhook-test/apply-internship";
+
+      // Prepare data for n8n webhook (CORRECTED FORMAT)
+      const webhookData = {
+        name: userProfile?.full_name || user.email?.split('@')[0] || 'Student',
+        email: user.email,
+        company: internship.company_name,
+        internship: internship.title,
+        status: "Pending"
+      };
+
+      // Execute both operations in parallel for better performance
+      const [webhookResponse, dbResponse] = await Promise.allSettled([
+        // Call n8n webhook
+        fetch(webhookUrl, {
+          method: "POST",
+          headers: { 
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify(webhookData)
+        }),
+        
+        // Insert into Supabase
+        supabase
+          .from('applications')
+          .insert({
+            user_id: user.id,
+            internship_id: internshipId,
+            status: 'pending'
+          })
+      ]);
+
+      // Check webhook response
+      if (webhookResponse.status === 'rejected') {
+        console.error('N8N webhook failed:', webhookResponse.reason);
+        // Don't throw error - continue with local save
+      } else if (webhookResponse.status === 'fulfilled' && !webhookResponse.value.ok) {
+        console.error(`N8N webhook failed: ${webhookResponse.value.status} ${webhookResponse.value.statusText}`);
+        // Don't throw error - continue with local save
+      }
+
+      // Check database response
+      if (dbResponse.status === 'rejected') {
+        throw new Error('Failed to save application to database');
+      }
+
+      if (dbResponse.status === 'fulfilled' && dbResponse.value.error) {
+        if (dbResponse.value.error.code === '23505') {
           toast({
             title: 'Already Applied',
             description: 'You have already applied for this internship.',
             variant: 'destructive'
           });
-        } else {
-          throw error;
+          return;
         }
-      } else {
-        toast({
-          title: 'Application Submitted',
-          description: 'Your application has been submitted successfully!'
-        });
-
-        // --- N8N WEBHOOK INTEGRATION ---
-        const internship = internships.find(i => i.id === internshipId);
-        
-        // ** ACTION REQUIRED: Replace the placeholder URL below with your actual n8n webhook URL. **
-        const webhookUrl = "https://rudrapatel123.app.n8n.cloud/webhook-test/apply-internship";
-
-        if (webhookUrl !== "YOUR_N8N_WEBHOOK_URL_HERE") {
-            await fetch(webhookUrl, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                user_id: user.id,
-                internship_id: internshipId,
-                internship_title: internship?.title, 
-                company_name: internship?.company_name,
-              })
-            });
-        } else {
-            console.warn("n8n webhook URL is not configured. Please replace the placeholder in Dashboard.tsx.");
-        }
-        // --- END OF N8N INTEGRATION ---
+        throw dbResponse.value.error;
       }
+
+      // Success message
+      toast({
+        title: 'Application Submitted Successfully!',
+        description: `Your application for ${internship.title} at ${internship.company_name} has been submitted. You will receive a confirmation email shortly.`
+      });
+
     } catch (error) {
       console.error('Error applying:', error);
       toast({
-        title: 'Error',
-        description: 'Failed to submit application. Please try again.',
+        title: 'Application Failed',
+        description: error instanceof Error ? error.message : 'Failed to submit application. Please try again.',
         variant: 'destructive'
       });
+    } finally {
+      setIsApplying(null);
     }
   };
 
@@ -364,8 +419,16 @@ const Dashboard = () => {
                   onClick={() => handleApply(internship.id)}
                   className="w-full"
                   variant={index === 0 ? "default" : "outline"}
+                  disabled={isApplying === internship.id}
                 >
-                  Apply Now
+                  {isApplying === internship.id ? (
+                    <>
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                      Applying...
+                    </>
+                  ) : (
+                    'Apply Now'
+                  )}
                 </Button>
               </CardContent>
             </Card>
@@ -383,4 +446,3 @@ const Dashboard = () => {
 };
 
 export default Dashboard;
-
