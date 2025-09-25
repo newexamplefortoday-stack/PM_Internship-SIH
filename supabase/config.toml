@@ -1,0 +1,7 @@
+project_id = "jkohjcpqmcwfxtfkkrma"
+
+[functions.admin-auth]
+verify_jwt = false
+
+[functions.admin-operations]
+verify_jwt = false
