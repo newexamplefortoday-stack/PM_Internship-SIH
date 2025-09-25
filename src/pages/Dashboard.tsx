@@ -48,18 +48,14 @@ const Dashboard = () => {
     if (!user) return;
 
     try {
-      // Fetch user profile
       const { data: profile } = await supabase
         .from('profiles')
-        .select('location, skills')
+        .select('location, skills, name, email')
         .eq('user_id', user.id)
         .single();
 
-      if (profile) {
-        setUserProfile(profile);
-      }
+      if (profile) setUserProfile(profile);
 
-      // Fetch internships
       const { data: internshipsData, error } = await supabase
         .from('internships')
         .select('*')
@@ -69,13 +65,11 @@ const Dashboard = () => {
       if (error) throw error;
 
       if (internshipsData && profile) {
-        // Calculate compatibility scores
         const internshipsWithScores = internshipsData.map(internship => ({
           ...internship,
           compatibility_score: calculateCompatibilityScore(internship, profile)
         }));
 
-        // Sort by compatibility score
         internshipsWithScores.sort((a, b) => (b.compatibility_score || 0) - (a.compatibility_score || 0));
         setInternships(internshipsWithScores);
       }
@@ -93,8 +87,6 @@ const Dashboard = () => {
 
   const calculateCompatibilityScore = (internship: any, profile: UserProfile): number => {
     let score = 0;
-    
-    // Location match (40% weight)
     if (profile.location && internship.location) {
       const userLoc = profile.location.toLowerCase();
       const internshipLoc = internship.location.toLowerCase();
@@ -102,20 +94,14 @@ const Dashboard = () => {
         score += 40;
       }
     }
-    
-    // Skills match (60% weight)
     if (profile.skills && internship.required_skills) {
       const userSkills = profile.skills.map(skill => skill.toLowerCase());
       const requiredSkills = internship.required_skills.map(skill => skill.toLowerCase());
       const matchingSkills = requiredSkills.filter(skill => 
         userSkills.some(userSkill => userSkill.includes(skill) || skill.includes(userSkill))
       );
-      
-      if (requiredSkills.length > 0) {
-        score += (matchingSkills.length / requiredSkills.length) * 60;
-      }
+      if (requiredSkills.length > 0) score += (matchingSkills.length / requiredSkills.length) * 60;
     }
-    
     return Math.round(score);
   };
 
@@ -127,63 +113,44 @@ const Dashboard = () => {
     });
   };
 
-  const handleApply = async (internshipId: string) => {
-    if (!user) return;
+  // NEW: Trigger n8n workflow
+  const triggerWorkflow = async (internship: Internship) => {
+    if (!userProfile) return;
 
     try {
-      // Insert into Supabase
+      const payload = {
+        name: userProfile.name,
+        email: userProfile.email,
+        internship: internship.title,
+        company: internship.company_name,
+        status: 'Pending'
+      };
+
+      const response = await fetch(
+        'https://rudrapatel123.app.n8n.cloud/webhook-test/apply-internship',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        }
+      );
+
+      if (!response.ok) throw new Error('Workflow failed');
+
+      // Insert application in Supabase for tracking
       const { error } = await supabase
         .from('applications')
         .insert({
-          user_id: user.id,
-          internship_id: internshipId
+          user_id: user?.id,
+          internship_id: internship.id
         });
 
-      if (error) {
-        if (error.code === '23505') { // Unique constraint violation
-          toast({
-            title: 'Already Applied',
-            description: 'You have already applied for this internship.',
-            variant: 'destructive'
-          });
-        } else {
-          throw error;
-        }
-      } else {
-        toast({
-          title: 'Application Submitted',
-          description: 'Your application has been submitted successfully!'
-        });
+      if (error) throw error;
 
-        // --- N8N WEBHOOK INTEGRATION ---
-        const internship = internships.find(i => i.id === internshipId);
-        
-        // ** ACTION REQUIRED: Replace the placeholder URL below with your actual n8n webhook URL. **
-        const webhookUrl = "YOUR_N8N_WEBHOOK_URL_HERE";
-
-        if (webhookUrl !== "YOUR_N8N_WEBHOOK_URL_HERE") {
-            await fetch(webhookUrl, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                // IDs for your n8n workflow to use for database lookups
-                user_id: user.id,
-                internship_id: internshipId,
-                
-                // Student details from the authenticated user object
-                student_email: user.email,
-                student_name: user.user_metadata?.full_name || user.email, // Fallbacks to email if full_name is not set
-
-                // Convenience details about the internship
-                internship_title: internship?.title, 
-                company_name: internship?.company_name,
-              })
-            });
-        } else {
-            console.warn("n8n webhook URL is not configured. Please replace the placeholder in Dashboard.tsx.");
-        }
-        // --- END OF N8N INTEGRATION ---
-      }
+      toast({
+        title: 'Application Submitted',
+        description: 'Your application has been successfully submitted!'
+      });
     } catch (error) {
       console.error('Error applying:', error);
       toast({
@@ -197,44 +164,31 @@ const Dashboard = () => {
   const filteredInternships = internships.filter(internship => {
     const matchesSearch = internship.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
                           internship.company_name.toLowerCase().includes(searchTerm.toLowerCase());
-    
     const matchesLocation = locationFilter === 'all' || internship.location === locationFilter;
-    
-    const matchesStipend = stipendFilter === 'all' || 
-                           (stipendFilter === 'low' && internship.stipend < 20000) ||
-                           (stipendFilter === 'medium' && internship.stipend >= 20000 && internship.stipend < 25000) ||
-                           (stipendFilter === 'high' && internship.stipend >= 25000);
-
+    const matchesStipend = stipendFilter === 'all' ||
+                          (stipendFilter === 'low' && internship.stipend < 20000) ||
+                          (stipendFilter === 'medium' && internship.stipend >= 20000 && internship.stipend < 25000) ||
+                          (stipendFilter === 'high' && internship.stipend >= 25000);
     return matchesSearch && matchesLocation && matchesStipend;
   });
 
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-primary"></div>
-      </div>
-    );
-  }
+  if (loading) return (
+    <div className="min-h-screen flex items-center justify-center">
+      <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-primary"></div>
+    </div>
+  );
 
   return (
     <div className="min-h-screen bg-background">
-      {/* Header */}
       <header className="bg-card border-b border-border shadow-sm">
-        <div className="container mx-auto px-4 py-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-2xl font-bold text-primary">PM Internship Dashboard</h1>
-              <p className="text-muted-foreground">Welcome back, find your perfect internship match!</p>
-            </div>
-            <Button
-              onClick={handleLogout}
-              variant="outline"
-              className="flex items-center gap-2"
-            >
-              <LogOut className="h-4 w-4" />
-              Logout
-            </Button>
+        <div className="container mx-auto px-4 py-4 flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold text-primary">PM Internship Dashboard</h1>
+            <p className="text-muted-foreground">Welcome back, find your perfect internship match!</p>
           </div>
+          <Button onClick={handleLogout} variant="outline" className="flex items-center gap-2">
+            <LogOut className="h-4 w-4" /> Logout
+          </Button>
         </div>
       </header>
 
@@ -243,8 +197,7 @@ const Dashboard = () => {
         <Card className="mb-6">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <Filter className="h-5 w-5" />
-              Search & Filter Internships
+              <Filter className="h-5 w-5" /> Search & Filter Internships
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -258,11 +211,8 @@ const Dashboard = () => {
                   className="pl-10"
                 />
               </div>
-              
               <Select value={locationFilter} onValueChange={setLocationFilter}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Filter by location" />
-                </SelectTrigger>
+                <SelectTrigger><SelectValue placeholder="Filter by location" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Locations</SelectItem>
                   <SelectItem value="Mumbai">Mumbai</SelectItem>
@@ -273,11 +223,8 @@ const Dashboard = () => {
                   <SelectItem value="Pune">Pune</SelectItem>
                 </SelectContent>
               </Select>
-              
               <Select value={stipendFilter} onValueChange={setStipendFilter}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Filter by stipend" />
-                </SelectTrigger>
+                <SelectTrigger><SelectValue placeholder="Filter by stipend" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Stipends</SelectItem>
                   <SelectItem value="low">Below ₹20,000</SelectItem>
@@ -289,89 +236,49 @@ const Dashboard = () => {
           </CardContent>
         </Card>
 
-        {/* Internships Grid */}
+        {/* Internships */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {filteredInternships.map((internship, index) => (
-            <Card 
-              key={internship.id} 
-              className={`hover:shadow-lg transition-shadow ${index === 0 ? 'border-primary shadow-lg' : ''}`}
-            >
+            <Card key={internship.id} className={`hover:shadow-lg transition-shadow ${index === 0 ? 'border-primary shadow-lg' : ''}`}>
               <CardHeader>
                 <div className="flex items-start justify-between">
                   <div className="flex items-center gap-3">
                     <div className="w-12 h-12 bg-secondary rounded-lg flex items-center justify-center">
-                      <span className="text-lg font-bold text-secondary-foreground">
-                        {internship.company_name.charAt(0)}
-                      </span>
+                      <span className="text-lg font-bold text-secondary-foreground">{internship.company_name.charAt(0)}</span>
                     </div>
                     <div>
                       <CardTitle className="text-lg">{internship.title}</CardTitle>
                       <p className="text-sm text-muted-foreground">{internship.company_name}</p>
                     </div>
                   </div>
-                  {index === 0 && (
-                    <Badge className="bg-gradient-primary text-primary-foreground">
-                      Best Match
-                    </Badge>
-                  )}
+                  {index === 0 && <Badge className="bg-gradient-primary text-primary-foreground">Best Match</Badge>}
                 </div>
               </CardHeader>
-              
               <CardContent className="space-y-4">
-                {/* Compatibility Score */}
                 <div className="flex items-center gap-2">
                   <Star className="h-4 w-4 text-yellow-500" />
-                  <span className="text-sm font-medium">
-                    {internship.compatibility_score}% Match
-                  </span>
+                  <span className="text-sm font-medium">{internship.compatibility_score}% Match</span>
                 </div>
-
-                {/* Details */}
                 <div className="space-y-2">
                   <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <MapPin className="h-4 w-4" />
-                    {internship.location}
+                    <MapPin className="h-4 w-4" /> {internship.location}
                   </div>
-                  
                   <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <DollarSign className="h-4 w-4" />
-                    ₹{internship.stipend.toLocaleString()}/month
+                    <DollarSign className="h-4 w-4" /> ₹{internship.stipend.toLocaleString()}/month
                   </div>
-                  
                   <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <Calendar className="h-4 w-4" />
-                    {internship.duration_months} months
+                    <Calendar className="h-4 w-4" /> {internship.duration_months} months
                   </div>
                 </div>
-
-                {/* Skills */}
                 <div>
                   <p className="text-sm font-medium mb-2">Required Skills:</p>
                   <div className="flex flex-wrap gap-1">
-                    {internship.required_skills.slice(0, 3).map((skill) => (
-                      <Badge key={skill} variant="secondary" className="text-xs">
-                        {skill}
-                      </Badge>
-                    ))}
-                    {internship.required_skills.length > 3 && (
-                      <Badge variant="secondary" className="text-xs">
-                        +{internship.required_skills.length - 3} more
-                      </Badge>
-                    )}
+                    {internship.required_skills.slice(0, 3).map(skill => <Badge key={skill} variant="secondary" className="text-xs">{skill}</Badge>)}
+                    {internship.required_skills.length > 3 && <Badge variant="secondary" className="text-xs">+{internship.required_skills.length - 3} more</Badge>}
                   </div>
                 </div>
-
-                {/* Description */}
-                <p className="text-sm text-muted-foreground line-clamp-2">
-                  {internship.description}
-                </p>
-
-                {/* Apply Button */}
-                <Button 
-                  onClick={() => handleApply(internship.id)}
-                  className="w-full"
-                  variant={index === 0 ? "default" : "outline"}
-                >
+                <p className="text-sm text-muted-foreground line-clamp-2">{internship.description}</p>
+                <Button onClick={() => triggerWorkflow(internship)} className="w-full" variant={index === 0 ? 'default' : 'outline'}>
                   Apply Now
                 </Button>
               </CardContent>
