@@ -131,6 +131,7 @@ const Dashboard = () => {
     if (!user) return;
 
     try {
+      // Insert into Supabase
       const { error } = await supabase
         .from('applications')
         .insert({
@@ -153,6 +154,28 @@ const Dashboard = () => {
           title: 'Application Submitted',
           description: 'Your application has been submitted successfully!'
         });
+
+        // --- N8N WEBHOOK INTEGRATION ---
+        const internship = internships.find(i => i.id === internshipId);
+        
+        // ** ACTION REQUIRED: Replace the placeholder URL below with your actual n8n webhook URL. **
+        const webhookUrl = "YOUR_N8N_WEBHOOK_URL_HERE";
+
+        if (webhookUrl !== "YOUR_N8N_WEBHOOK_URL_HERE") {
+            await fetch(webhookUrl, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                user_id: user.id,
+                internship_id: internshipId,
+                internship_title: internship?.title, 
+                company_name: internship?.company_name,
+              })
+            });
+        } else {
+            console.warn("n8n webhook URL is not configured. Please replace the placeholder in Dashboard.tsx.");
+        }
+        // --- END OF N8N INTEGRATION ---
       }
     } catch (error) {
       console.error('Error applying:', error);
@@ -166,14 +189,14 @@ const Dashboard = () => {
 
   const filteredInternships = internships.filter(internship => {
     const matchesSearch = internship.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         internship.company_name.toLowerCase().includes(searchTerm.toLowerCase());
+                          internship.company_name.toLowerCase().includes(searchTerm.toLowerCase());
     
     const matchesLocation = locationFilter === 'all' || internship.location === locationFilter;
     
     const matchesStipend = stipendFilter === 'all' || 
-                          (stipendFilter === 'low' && internship.stipend < 20000) ||
-                          (stipendFilter === 'medium' && internship.stipend >= 20000 && internship.stipend < 25000) ||
-                          (stipendFilter === 'high' && internship.stipend >= 25000);
+                           (stipendFilter === 'low' && internship.stipend < 20000) ||
+                           (stipendFilter === 'medium' && internship.stipend >= 20000 && internship.stipend < 25000) ||
+                           (stipendFilter === 'high' && internship.stipend >= 25000);
 
     return matchesSearch && matchesLocation && matchesStipend;
   });
