@@ -159,7 +159,7 @@ const Dashboard = () => {
         const internship = internships.find(i => i.id === internshipId);
         
         // ** ACTION REQUIRED: Replace the placeholder URL below with your actual n8n webhook URL. **
-        const webhookUrl = "YOUR_N8N_WEBHOOK_URL_HERE";
+        const webhookUrl = "https://shahyug-123.app.n8n.cloud/webhook-test/apply-internship";
 
         if (webhookUrl !== "YOUR_N8N_WEBHOOK_URL_HERE") {
             await fetch(webhookUrl, {
