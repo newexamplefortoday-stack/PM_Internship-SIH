@@ -101,8 +101,8 @@ const AdminDashboard = () => {
         },
         body: JSON.stringify({
           student_id: application.id,
-          student_name: application.profile.name,
-          email: application.profile.email,
+          student_name: userProfile.name,
+          email: userProfile.email,
           internship: application.internship?.title,
           company: adminData?.company_name,
           status: newStatus
