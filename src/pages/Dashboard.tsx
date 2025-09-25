@@ -287,7 +287,7 @@ const Dashboard = () => {
           {filteredInternships.map((internship, index) => (
             <Card 
               key={internship.id} 
-              className={hover:shadow-lg transition-shadow ${index === 0 ? 'border-primary shadow-lg' : ''}}
+              className={`hover:shadow-lg transition-shadow ${index === 0 ? 'border-primary shadow-lg' : ''}`}
             >
               <CardHeader>
                 <div className="flex items-start justify-between">
@@ -378,7 +378,7 @@ const Dashboard = () => {
           </div>
         )}
       </div>
-    </div> 
+    </div>
   );
 };
 
