@@ -46,7 +46,7 @@ serve(async (req) => {
       // Fetch internships and profiles
       const [internshipsResponse, profilesResponse] = await Promise.all([
         supabase.from('internships').select('id, title, required_skills').in('id', internshipIds),
-        supabase.from('profiles').select('user_id, name, age, mobile, education, location, skills').in('user_id', userIds)
+        supabase.from('profiles').select('user_id, name, email, age, mobile, education, location, skills').in('user_id', userIds)
       ]);
 
       // Combine data with compatibility scoring
