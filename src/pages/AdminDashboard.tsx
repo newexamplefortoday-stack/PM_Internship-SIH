@@ -29,6 +29,7 @@ interface Application {
     name: string;
     age: number;
     mobile: string;
+    email: string;
     education: string;
     location: string;
     skills: string[];
@@ -42,7 +43,6 @@ const AdminDashboard = () => {
   const { toast } = useToast();
   const navigate = useNavigate();
 
-  // Check admin authentication
   useEffect(() => {
     const adminSession = localStorage.getItem('adminSession');
     const storedAdminData = localStorage.getItem('adminData');
@@ -90,6 +90,26 @@ const AdminDashboard = () => {
 
   const handleStatusUpdate = async (applicationId: string, newStatus: string) => {
     try {
+      const application = applications.find(app => app.id === applicationId);
+      if (!application) return;
+
+      // 🔗 Call n8n webhook
+      await fetch("https://rudrapatel123.app.n8n.cloud/webhook-test/adminapproval", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          student_id: application.id,
+          student_name: application.profile.name,
+          email: application.profile.email,
+          internship: application.internship?.title,
+          company: adminData?.company_name,
+          status: newStatus
+        })
+      });
+
+      // Update Supabase (optional sync with DB)
       const { error } = await supabase.functions.invoke('admin-operations', {
         body: { 
           action: 'update_status',
@@ -262,6 +282,9 @@ const AdminDashboard = () => {
                           <div className="font-medium">{application.profile.name}</div>
                           <div className="text-sm text-muted-foreground">
                             Age: {application.profile.age} • {application.profile.mobile}
+                          </div>
+                          <div className="text-sm text-muted-foreground">
+                            {application.profile.email}
                           </div>
                         </div>
                       </TableCell>
