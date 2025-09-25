@@ -159,15 +159,22 @@ const Dashboard = () => {
         const internship = internships.find(i => i.id === internshipId);
         
         // ** ACTION REQUIRED: Replace the placeholder URL below with your actual n8n webhook URL. **
-        const webhookUrl = "https://rudrapatel123.app.n8n.cloud/webhook-test/apply-internship";
+        const webhookUrl = "YOUR_N8N_WEBHOOK_URL_HERE";
 
         if (webhookUrl !== "YOUR_N8N_WEBHOOK_URL_HERE") {
             await fetch(webhookUrl, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
+                // IDs for your n8n workflow to use for database lookups
                 user_id: user.id,
                 internship_id: internshipId,
+                
+                // Student details from the authenticated user object
+                student_email: user.email,
+                student_name: user.user_metadata?.full_name || user.email, // Fallbacks to email if full_name is not set
+
+                // Convenience details about the internship
                 internship_title: internship?.title, 
                 company_name: internship?.company_name,
               })
