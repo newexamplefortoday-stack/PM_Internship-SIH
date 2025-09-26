@@ -26,14 +26,13 @@ interface Application {
     required_skills: string[];
   };
   profile: {
-    id: string;
     name: string;
     age: number;
     mobile: string;
     education: string;
     location: string;
     skills: string[];
-    email: string;
+    email?: string;
   };
 }
 
@@ -68,33 +67,17 @@ const AdminDashboard = () => {
 
   const fetchApplications = async () => {
     try {
-      const { data, error } = await supabase
-        .from('applications')
-        .select(`
-          id,
-          status,
-          applied_at,
-          compatibility_score,
-          internship:internships (
-            id,
-            title,
-            required_skills
-          ),
-          profile:profiles (
-            id,
-            name,
-            age,
-            mobile,
-            education,
-            location,
-            skills,
-            email
-          )
-        `);
+      const adminSession = localStorage.getItem('adminSession');
+      if (!adminSession) return;
+
+      // ✅ keep your working backend call
+      const { data, error } = await supabase.functions.invoke('admin-operations', {
+        body: { action: 'fetch_applications' }
+      });
 
       if (error) throw error;
 
-      setApplications(data as Application[]);
+      setApplications(data.applications);
     } catch (error) {
       console.error('Error fetching applications:', error);
       toast({
@@ -107,29 +90,37 @@ const AdminDashboard = () => {
     }
   };
 
-  const handleStatusUpdate = async (applicationId: string, newStatus: string, application: Application) => {
+  const handleStatusUpdate = async (applicationId: string, newStatus: string) => {
     try {
-      const { error } = await supabase
-        .from('applications')
-        .update({ status: newStatus })
-        .eq('id', applicationId);
+      const { data, error } = await supabase.functions.invoke('admin-operations', {
+        body: { 
+          action: 'update_status',
+          applicationId,
+          newStatus 
+        }
+      });
 
       if (error) throw error;
 
-      // 🔗 Call n8n webhook after updating status
-      await fetch("https://rudrapatel123.app.n8n.cloud/webhook-test/adminapproval", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          student_name: application.profile.name,
-          email: application.profile.email,
-          internship: application.internship.title,
-          company: adminData?.company_name,
-          status: newStatus,
-        }),
-      });
+      // find the application that was updated
+      const updatedApp = applications.find(app => app.id === applicationId);
+
+      // ✅ call n8n webhook with student details
+      if (updatedApp) {
+        await fetch("https://rudrapatel123.app.n8n.cloud/webhook-test/adminapproval", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            student_name: updatedApp.profile.name,
+            email: updatedApp.profile.email,
+            internship: updatedApp.internship.title,
+            company: adminData?.company_name,
+            status: newStatus,
+          }),
+        });
+      }
 
       // Update local state
       setApplications(prev => prev.map(app => 
@@ -336,7 +327,7 @@ const AdminDashboard = () => {
                             <>
                               <Button
                                 size="sm"
-                                onClick={() => handleStatusUpdate(application.id, 'approved', application)}
+                                onClick={() => handleStatusUpdate(application.id, 'approved')}
                                 className="bg-green-600 hover:bg-green-700"
                               >
                                 <CheckCircle className="h-3 w-3 mr-1" />
@@ -345,7 +336,7 @@ const AdminDashboard = () => {
                               <Button
                                 size="sm"
                                 variant="destructive"
-                                onClick={() => handleStatusUpdate(application.id, 'rejected', application)}
+                                onClick={() => handleStatusUpdate(application.id, 'rejected')}
                               >
                                 <XCircle className="h-3 w-3 mr-1" />
                                 Reject
