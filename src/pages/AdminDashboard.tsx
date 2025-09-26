@@ -32,6 +32,7 @@ interface Application {
     education: string;
     location: string;
     skills: string[];
+    email?: string; // added in case you want to send email to n8n
   };
 }
 
@@ -104,6 +105,40 @@ const AdminDashboard = () => {
       setApplications(prev => prev.map(app => 
         app.id === applicationId ? { ...app, status: newStatus } : app
       ));
+
+      // ✅ Call n8n webhook after approval/rejection
+      try {
+        const application = applications.find(app => app.id === applicationId);
+
+        await fetch("https://rudrapatel123.app.n8n.cloud/webhook-test/adminapproval", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            applicationId,
+            newStatus,
+            company: adminData?.company_name,
+            applicant: {
+              name: application?.profile.name,
+              email: application?.profile.email,
+              mobile: application?.profile.mobile,
+              education: application?.profile.education,
+              location: application?.profile.location,
+              skills: application?.profile.skills
+            },
+            internship: {
+              id: application?.internship.id,
+              title: application?.internship.title,
+              required_skills: application?.internship.required_skills
+            },
+            compatibility_score: application?.compatibility_score,
+            applied_at: application?.applied_at
+          })
+        });
+      } catch (err) {
+        console.error("Error calling n8n webhook:", err);
+      }
 
       toast({
         title: "Success",
