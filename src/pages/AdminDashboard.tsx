@@ -26,13 +26,14 @@ interface Application {
     required_skills: string[];
   };
   profile: {
+    id: string;
     name: string;
     age: number;
     mobile: string;
     education: string;
     location: string;
     skills: string[];
-    email?: string; // added in case you want to send email to n8n
+    email: string;
   };
 }
 
@@ -67,16 +68,33 @@ const AdminDashboard = () => {
 
   const fetchApplications = async () => {
     try {
-      const adminSession = localStorage.getItem('adminSession');
-      if (!adminSession) return;
-
-      const { data, error } = await supabase.functions.invoke('admin-operations', {
-        body: { action: 'fetch_applications' }
-      });
+      const { data, error } = await supabase
+        .from('applications')
+        .select(`
+          id,
+          status,
+          applied_at,
+          compatibility_score,
+          internship:internships (
+            id,
+            title,
+            required_skills
+          ),
+          profile:profiles (
+            id,
+            name,
+            age,
+            mobile,
+            education,
+            location,
+            skills,
+            email
+          )
+        `);
 
       if (error) throw error;
 
-      setApplications(data.applications);
+      setApplications(data as Application[]);
     } catch (error) {
       console.error('Error fetching applications:', error);
       toast({
@@ -89,56 +107,34 @@ const AdminDashboard = () => {
     }
   };
 
-  const handleStatusUpdate = async (applicationId: string, newStatus: string) => {
+  const handleStatusUpdate = async (applicationId: string, newStatus: string, application: Application) => {
     try {
-      const { error } = await supabase.functions.invoke('admin-operations', {
-        body: { 
-          action: 'update_status',
-          applicationId,
-          newStatus 
-        }
-      });
+      const { error } = await supabase
+        .from('applications')
+        .update({ status: newStatus })
+        .eq('id', applicationId);
 
       if (error) throw error;
+
+      // 🔗 Call n8n webhook after updating status
+      await fetch("https://rudrapatel123.app.n8n.cloud/webhook-test/adminapproval", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          student_name: application.profile.name,
+          email: application.profile.email,
+          internship: application.internship.title,
+          company: adminData?.company_name,
+          status: newStatus,
+        }),
+      });
 
       // Update local state
       setApplications(prev => prev.map(app => 
         app.id === applicationId ? { ...app, status: newStatus } : app
       ));
-
-      // ✅ Call n8n webhook after approval/rejection
-      try {
-        const application = applications.find(app => app.id === applicationId);
-
-        await fetch("https://rudrapatel123.app.n8n.cloud/webhook-test/adminapproval", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json"
-          },
-          body: JSON.stringify({
-            applicationId,
-            newStatus,
-            company: adminData?.company_name,
-            applicant: {
-              name: application?.profile.name,
-              email: application?.profile.email,
-              mobile: application?.profile.mobile,
-              education: application?.profile.education,
-              location: application?.profile.location,
-              skills: application?.profile.skills
-            },
-            internship: {
-              id: application?.internship.id,
-              title: application?.internship.title,
-              required_skills: application?.internship.required_skills
-            },
-            compatibility_score: application?.compatibility_score,
-            applied_at: application?.applied_at
-          })
-        });
-      } catch (err) {
-        console.error("Error calling n8n webhook:", err);
-      }
 
       toast({
         title: "Success",
@@ -296,7 +292,7 @@ const AdminDashboard = () => {
                         <div>
                           <div className="font-medium">{application.profile.name}</div>
                           <div className="text-sm text-muted-foreground">
-                            Age: {application.profile.age} • {application.profile.mobile}
+                            {application.profile.email} • {application.profile.mobile}
                           </div>
                         </div>
                       </TableCell>
@@ -340,7 +336,7 @@ const AdminDashboard = () => {
                             <>
                               <Button
                                 size="sm"
-                                onClick={() => handleStatusUpdate(application.id, 'approved')}
+                                onClick={() => handleStatusUpdate(application.id, 'approved', application)}
                                 className="bg-green-600 hover:bg-green-700"
                               >
                                 <CheckCircle className="h-3 w-3 mr-1" />
@@ -349,7 +345,7 @@ const AdminDashboard = () => {
                               <Button
                                 size="sm"
                                 variant="destructive"
-                                onClick={() => handleStatusUpdate(application.id, 'rejected')}
+                                onClick={() => handleStatusUpdate(application.id, 'rejected', application)}
                               >
                                 <XCircle className="h-3 w-3 mr-1" />
                                 Reject
